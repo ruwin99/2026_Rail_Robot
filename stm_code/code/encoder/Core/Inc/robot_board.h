@@ -1,0 +1,35 @@
+#ifndef ROBOT_BOARD_H
+#define ROBOT_BOARD_H
+
+#include "main.h"
+
+/* CubeMX가 main.c에 정의한 주변장치 핸들. 애플리케이션 상태는 공유하지 않는다. */
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim4;
+extern UART_HandleTypeDef huart2;
+
+#define FRONT_CLEANER_TIM_CHANNEL TIM_CHANNEL_4
+#define FRONT_CLEANER_GPIO_PORT GPIOB
+#define FRONT_CLEANER_IN1_PIN GPIO_PIN_13
+#define FRONT_CLEANER_IN2_PIN GPIO_PIN_14
+
+#define FRONT_WATER_PUMP_TIM_CHANNEL TIM_CHANNEL_1
+#define FRONT_WATER_PUMP_GPIO_PORT GPIOA
+#define FRONT_WATER_PUMP_IN1_PIN GPIO_PIN_5
+#define FRONT_WATER_PUMP_IN2_PIN GPIO_PIN_6
+
+#define SIDE_CLEANER_TIM_CHANNEL TIM_CHANNEL_2
+#define SIDE_CLEANER_GPIO_PORT GPIOC
+#define SIDE_CLEANER_IN1_PIN GPIO_PIN_13
+#define SIDE_CLEANER_IN2_PIN GPIO_PIN_14
+
+#define SIDE_WATER_PUMP_TIM_CHANNEL TIM_CHANNEL_3
+#define SIDE_WATER_PUMP_GPIO_PORT GPIOC
+#define SIDE_WATER_PUMP_IN1_PIN GPIO_PIN_8
+#define SIDE_WATER_PUMP_IN2_PIN GPIO_PIN_9
+
+
+
+#endif

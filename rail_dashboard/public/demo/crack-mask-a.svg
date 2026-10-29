@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-label="크랙 마스크 예시">
+  <defs><linearGradient id="rail" x1="0" x2="1"><stop stop-color="#35403e"/><stop offset=".22" stop-color="#7d8783"/><stop offset=".52" stop-color="#4b5653"/><stop offset=".8" stop-color="#929a97"/><stop offset="1" stop-color="#303936"/></linearGradient><pattern id="grain" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 1h6" stroke="#fff" stroke-opacity=".08"/></pattern></defs>
+  <rect width="640" height="360" fill="url(#rail)"/><rect width="640" height="360" fill="url(#grain)"/>
+  <path d="M66 127 154 162l55-9 79 51 75-7 103 58" fill="none" stroke="#19d2cf" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" stroke-opacity=".88"/>
+  <path d="m289 203 33-72 62-35" fill="none" stroke="#19d2cf" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" stroke-opacity=".88"/>
+</svg>

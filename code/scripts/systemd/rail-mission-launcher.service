@@ -1,0 +1,16 @@
+[Unit]
+Description=Rail Robot authenticated dashboard mission process launcher
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Desktop/rail_robot/code
+Environment=PYTHONPATH=%h/Desktop/rail_robot/code/jetson_code
+Environment=RAIL_ROBOT_WEBRTC_CONFIG=%h/.config/rail_robot/webrtc.json
+ExecStart=/usr/bin/python3 -m node_runtime.mission_launcher
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

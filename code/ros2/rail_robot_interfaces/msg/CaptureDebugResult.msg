@@ -1,0 +1,20 @@
+# The header retains the camera read timestamp, not inference completion time.
+std_msgs/Header header
+string capture_role
+string camera_role
+string stream_id
+uint64 sequence
+string capture_id
+bool success
+string error
+string raw_path
+string annotated_path
+string primary_method
+string crack_method
+float64 primary_seconds
+float64 crack_seconds
+float64 total_seconds
+float64 rust_ratio
+float64 crack_ratio
+uint32 obstacle_count
+sensor_msgs/Image annotated

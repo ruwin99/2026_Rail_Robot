@@ -1,0 +1,24 @@
+[Unit]
+Description=Rail Robot mission ROS launch (remote process start only)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Desktop/rail_robot/code
+# ROS domain and runtime flags are shared with rail-webrtc.service through
+# one file, so the mission stack and the video sender cannot drift apart.
+EnvironmentFile=%h/.config/rail_robot/runtime.env
+Environment=RAIL_ROBOT_WEBRTC_CONFIG=%h/.config/rail_robot/webrtc.json
+# rail-ros-env.sh sets ROS, CUDA and venv paths explicitly instead of loading
+# the operator's interactive ~/.bashrc. Engines come from deployment.py.
+# dashboard_control:=true lets the same dashboard send START/E_STOP after LAUNCH.
+# It requires the RR2 bridge; uart_protocol:=v2 is stated explicitly.
+# upload:=true uploads the finalized report and detection previews to the dashboard "검출 기록·요약"
+# after DONE, like rail_mission (needs ~/.config/rail_robot/firebase.env; a failed upload never stops the mission).
+ExecStart=/bin/bash %h/Desktop/rail_robot/code/scripts/systemd/rail-ros-env.sh ./scripts/run.sh mode:=mission display:=false gui_output:=true dashboard_live:=true dashboard_control:=true upload:=true uart_protocol:=v2
+Restart=no
+TimeoutStopSec=12
+KillMode=control-group
+
+# Deliberately no [Install]: this unit must not start on boot. The launcher
+# starts it only after an authorized, fresh Firestore request.

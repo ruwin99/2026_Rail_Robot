@@ -1,0 +1,18 @@
+{
+  "projectId": "YOUR_FIREBASE_PROJECT",
+  "robotId": "rail-robot-01",
+  "storageBucket": "",
+  "senderId": "DEDICATED_SENDER_FIREBASE_UID",
+  "senderUid": "DEDICATED_SENDER_FIREBASE_UID",
+  "apiKey": "FIREBASE_WEB_API_KEY",
+  "refreshToken": "PROVISION_OUTSIDE_REPOSITORY",
+  "allowedViewerUids": ["AUTHORIZED_VIEWER_FIREBASE_UID"],
+  "media": {
+    "encoder": "auto",
+    "softwareEncoder": "x264enc",
+    "bitrateKbps": 2000,
+    "fps": 12,
+    "stunServer": "stun://stun.l.google.com:19302",
+    "turnServers": []
+  }
+}

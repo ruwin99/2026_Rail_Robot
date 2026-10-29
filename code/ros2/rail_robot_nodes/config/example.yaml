@@ -1,0 +1,13 @@
+# Startup parameters are read-only. Restart only the affected node to change them.
+# The defaults in node_runtime/ros/deployment.py contain the current engine pins.
+/**:
+  ros__parameters:
+    use_sim_time: false
+    output_directory: "~/rail_robot_data/captures"
+    training_camera_role: "side"
+    training_output_directory: "~/rail_robot_data/training"
+# Example for a single node:
+# /rail_stm_bridge:
+#   ros__parameters:
+#     serial_port: "/dev/ttyACM0"
+#     baud_rate: 115200

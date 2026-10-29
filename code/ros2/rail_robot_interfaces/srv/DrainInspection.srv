@@ -1,0 +1,5 @@
+bool finalize
+---
+bool success
+string error
+string manifest_path

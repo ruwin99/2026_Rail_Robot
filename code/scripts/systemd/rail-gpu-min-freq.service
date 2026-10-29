@@ -1,0 +1,24 @@
+# System unit (not a user unit): sets the GPU devfreq floor at boot.
+# The default governor keeps the GPU at 306 MHz during per-frame inference, which
+# made realtime crack TensorRT 6.8 ms instead of 2.6 ms. Measured 2026-10-01 on
+# the Orin Nano 25W mode: 918 MHz floor costs about +0.7 W at the module input.
+# Runs after nvpmodel.service because applying a power mode resets the limits.
+# A missing node or a value not in available_frequencies fails the unit and
+# leaves the default governor in place (inference still works, only slower).
+[Unit]
+Description=Rail Robot GPU minimum clock for realtime inference
+After=nvpmodel.service
+Wants=nvpmodel.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Shell variables are written $$ so systemd passes them to sh unexpanded.
+Environment=GPU_MIN_FREQ_HZ=918000000
+Environment=GPU_DEVFREQ=/sys/devices/platform/bus@0/17000000.gpu/devfreq/17000000.gpu
+ExecStart=/bin/sh -c 'set -e; grep -qw "$${GPU_MIN_FREQ_HZ}" "$${GPU_DEVFREQ}/available_frequencies"; echo "$${GPU_MIN_FREQ_HZ}" > "$${GPU_DEVFREQ}/min_freq"; echo "GPU min_freq=$$(cat "$${GPU_DEVFREQ}/min_freq")"'
+# Stopping restores the lowest available frequency (the default floor).
+ExecStop=/bin/sh -c 'cut -d" " -f1 "$${GPU_DEVFREQ}/available_frequencies" > "$${GPU_DEVFREQ}/min_freq"'
+
+[Install]
+WantedBy=multi-user.target

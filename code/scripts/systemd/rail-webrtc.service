@@ -1,0 +1,16 @@
+[Unit]
+Description=Rail Robot WebRTC dashboard sender
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Desktop/rail_robot/code
+# Same ROS domain and runtime flags as rail-mission.service (one shared file).
+EnvironmentFile=%h/.config/rail_robot/runtime.env
+ExecStart=/bin/bash %h/Desktop/rail_robot/code/scripts/systemd/rail-ros-env.sh ros2 launch rail_robot_nodes webrtc.launch.py config_file:=%h/.config/rail_robot/webrtc.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

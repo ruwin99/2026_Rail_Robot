@@ -1,0 +1,95 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'admin3@example.invalid',
+          'admin1@example.invalid',
+          'admin2@example.invalid'
+        ];
+    }
+
+    function isEnabledJetsonUploader() {
+      return request.auth != null
+        && firestore.get(
+          /databases/(default)/documents/device_uploaders/$(request.auth.uid)
+        ).data.enabled == true;
+    }
+
+    function isJetsonImage(runId) {
+      return isEnabledJetsonUploader()
+        && runId.matches('run_[a-f0-9]{24}')
+        && request.resource != null
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png)')
+        && request.resource.metadata.source == 'jetson-runtime'
+        && request.resource.metadata.runId == runId
+        && request.resource.metadata.captureId.matches('cap_[a-f0-9]{32}')
+        && request.resource.metadata.artifactType in [
+          'rust_preview',
+          'crack_preview',
+          'obstacle_preview'
+        ]
+        && request.resource.metadata.sha256.matches('^[a-f0-9]{64}$');
+    }
+
+    match /dashboard/media/{runId}/{fileName} {
+      allow write: if isJetsonImage(runId);
+    }
+
+    match /live/jetson/gui.jpg {
+      allow write: if isEnabledJetsonUploader()
+        && request.resource != null
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.metadata.source == 'jetson-live-preview'
+        && request.resource.metadata.artifactType == 'gui_preview'
+        && request.resource.metadata.sha256.matches('^[a-f0-9]{64}$');
+    }
+
+    match /captures/{allPaths=**} {
+      allow write: if isEnabledJetsonUploader()
+        && request.resource != null
+        && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.metadata.source == 'jetson-runtime'
+        && request.resource.metadata.runId.matches('run_[a-f0-9]{24}')
+        && request.resource.metadata.captureId.matches('cap_[a-f0-9]{32}')
+        && request.resource.metadata.artifactType in ['raw', 'analyzed']
+        && request.resource.metadata.sha256.matches('^[a-f0-9]{64}$');
+    }
+
+    match /robots/{robotId}/captures/{captureId}/{fileName} {
+      function robot() {
+        return firestore.get(/databases/(default)/documents/robots/$(robotId)).data;
+      }
+      allow read: if isAdmin() && robot().enabled == true && request.auth.uid in robot().viewerUids;
+      allow create, update: if isEnabledJetsonUploader() && robot().enabled == true
+        && robot().senderId == request.auth.uid
+        && captureId.matches('cap_[a-f0-9]{32}')
+        && fileName.matches('[A-Za-z0-9_.-]+')
+        && request.resource != null && request.resource.size < 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png)');
+    }
+
+    match /dashboard/manifests/{fileName} {
+      allow write: if isEnabledJetsonUploader()
+        && request.resource != null
+        && request.resource.size < 1024 * 1024
+        && request.resource.contentType == 'application/json'
+        && request.resource.metadata.source == 'jetson-runtime'
+        && request.resource.metadata.runId.matches('run_[a-f0-9]{24}')
+        && request.resource.metadata.sha256.matches('^[a-f0-9]{64}$')
+        && fileName == request.resource.metadata.runId + '.json';
+    }
+
+    // 실제 검사 자료 읽기·삭제와 기기 외 쓰기는 승인된 관리자만 가능하다.
+    match /{topLevel}/{allPaths=**} {
+      // Robot-scoped live media must retain the robot-specific viewer check.
+      allow read, write: if isAdmin() && topLevel != 'robots';
+    }
+  }
+}

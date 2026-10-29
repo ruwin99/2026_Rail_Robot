@@ -1,0 +1,7 @@
+string request_id
+string phase
+uint32 phase_sequence
+string trigger
+---
+bool accepted
+string error

@@ -1,0 +1,329 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'admin3@example.invalid',
+          'admin1@example.invalid',
+          'admin2@example.invalid'
+        ];
+    }
+
+    function isEnabledJetsonUploader() {
+      return request.auth != null
+        && get(
+          /databases/$(database)/documents/device_uploaders/$(request.auth.uid)
+        ).data.enabled == true;
+    }
+
+    function isValidJetsonExport(runId) {
+      return runId.matches('run_[a-f0-9]{24}')
+        && request.resource.data.keys().hasOnly([
+          'payload',
+          'source',
+          'uploader_uid',
+          'imported_at'
+        ])
+        && request.resource.data.source == 'jetson-runtime'
+        && request.resource.data.uploader_uid == request.auth.uid
+        && request.resource.data.imported_at is timestamp
+        && request.resource.data.payload is map
+        && request.resource.data.payload.schema_version == 1
+        && request.resource.data.payload.runs is list
+        && request.resource.data.payload.runs.size() == 1
+        && request.resource.data.payload.runs[0].run_id == runId;
+    }
+
+    match /inspection_exports/{runId} {
+      allow create: if isEnabledJetsonUploader()
+        && isValidJetsonExport(runId);
+      allow update: if isEnabledJetsonUploader()
+        && resource.data.uploader_uid == request.auth.uid
+        && isValidJetsonExport(runId);
+    }
+
+    function robotConfig(robotId) {
+      return get(/databases/$(database)/documents/robots/$(robotId)).data;
+    }
+    function isViewer(robotId) {
+      return isAdmin() && robotConfig(robotId).enabled == true
+        && request.auth.uid in robotConfig(robotId).viewerUids;
+    }
+    function isSender(robotId) {
+      return isEnabledJetsonUploader() && robotConfig(robotId).enabled == true
+        && robotConfig(robotId).senderId == request.auth.uid;
+    }
+    function isOperator(robotId) {
+      return isViewer(robotId) && robotConfig(robotId).remoteControlEnabled == true
+        && request.auth.uid in robotConfig(robotId).operatorUids;
+    }
+    function isLauncherOperator(robotId) {
+      return isViewer(robotId) && robotConfig(robotId).remoteLaunchEnabled == true
+        && request.auth.uid in robotConfig(robotId).operatorUids;
+    }
+    // 원격 명령·launch 요청의 수명은 서버 createdAt + 10초다(브라우저 시계 미사용).
+    function requestAlive(data) {
+      return request.time < data.createdAt + duration.value(10, 's');
+    }
+    function terminal(data) { return data.state in ['closed', 'failed']; }
+    function sessionData(robotId, sessionId) {
+      return get(/databases/$(database)/documents/robots/$(robotId)/webrtcSessions/$(sessionId)).data;
+    }
+    function currentLease(robotId, sessionId) {
+      let lease = get(/databases/$(database)/documents/robots/$(robotId)/webrtcLocks/active).data;
+      return lease.sessionId == sessionId && lease.leaseUntil > request.time;
+    }
+    function nextLease(robotId, sessionId, ownerUid) {
+      let lease = getAfter(/databases/$(database)/documents/robots/$(robotId)/webrtcLocks/active).data;
+      return lease.sessionId == sessionId && lease.ownerUid == ownerUid
+        && lease.leaseUntil > request.time;
+    }
+    function alive(robotId, sessionId, data) {
+      return !terminal(data) && data.expiresAt > request.time
+        && data.viewerHeartbeatAt > request.time - duration.value(30, 's')
+        && currentLease(robotId, sessionId);
+    }
+    function validSdp(value, kind) {
+      return value is map && value.keys().hasOnly(['type', 'sdp'])
+        && value.type == kind && value.sdp is string
+        && value.sdp.size() > 0 && value.sdp.size() <= 100000;
+    }
+
+    match /robots/{robotId} {
+      // Provision configuration only through a trusted Admin SDK / Firebase console.
+      allow read: if (isAdmin() && resource.data.enabled == true
+        && request.auth.uid in resource.data.viewerUids) || isSender(robotId);
+
+      match /launcher/status {
+        allow read: if isViewer(robotId) || isSender(robotId);
+        allow create, update: if isSender(robotId)
+          && request.resource.data.keys().hasOnly([
+            'schemaVersion', 'senderId', 'ready', 'missionRunning', 'updatedAt'])
+          && request.resource.data.keys().hasAll([
+            'schemaVersion', 'senderId', 'ready', 'missionRunning', 'updatedAt'])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.ready is bool
+          && request.resource.data.missionRunning is bool
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      match /launchRequests/{requestId} {
+        allow read: if isSender(robotId)
+          || (isLauncherOperator(robotId) && resource.data.ownerUid == request.auth.uid);
+        allow create: if isLauncherOperator(robotId)
+          && requestId.matches('[A-Za-z0-9_-]{1,128}')
+          && request.resource.data.keys().hasOnly(['schemaVersion', 'robotId', 'ownerUid', 'action',
+            'state', 'createdAt', 'acceptedAt', 'finishedAt', 'resultCode'])
+          && request.resource.data.keys().hasAll(['schemaVersion', 'robotId', 'ownerUid', 'action',
+            'state', 'createdAt', 'acceptedAt', 'finishedAt', 'resultCode'])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.robotId == robotId
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.action == 'LAUNCH_MISSION'
+          && request.resource.data.state == 'requested'
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.acceptedAt == null
+          && request.resource.data.finishedAt == null
+          && request.resource.data.resultCode == null;
+        allow update: if isSender(robotId)
+          && ((resource.data.state == 'requested'
+            && requestAlive(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'acceptedAt'])
+            && request.resource.data.state == 'accepted'
+            && request.resource.data.acceptedAt == request.time)
+          || (resource.data.state in ['requested', 'accepted']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'finishedAt', 'resultCode'])
+            && (request.resource.data.state == 'failed'
+              || (resource.data.state == 'accepted' && request.resource.data.state == 'succeeded'))
+            && request.resource.data.finishedAt == request.time
+            && request.resource.data.resultCode is string
+            && request.resource.data.resultCode.matches('[a-z_]{1,64}')));
+      }
+
+      // Live observation documents are independent of the single video viewer lease.
+      match /telemetry/current {
+        allow read: if isViewer(robotId) || isSender(robotId);
+        allow create, update: if isSender(robotId)
+          && request.resource.data.keys().hasOnly(['schemaVersion', 'senderId', 'updatedAt', 'topics', 'mission', 'cameras', 'nodeHealth'])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.topics is list && request.resource.data.topics.size() <= 128
+          && (request.resource.data.mission == null || request.resource.data.mission is map)
+          && request.resource.data.cameras is map
+          && request.resource.data.cameras.keys().hasOnly(['side', 'front'])
+          && (!('nodeHealth' in request.resource.data)
+            || (request.resource.data.nodeHealth is list && request.resource.data.nodeHealth.size() <= 16));
+      }
+
+      match /captures/{captureId} {
+        allow read: if isViewer(robotId) || isSender(robotId);
+        function validProcessed(item) {
+          return item is map && item.keys().hasOnly(['label', 'objectKey'])
+            && item.label is string && item.label.size() <= 128
+            && item.objectKey is string
+            && item.objectKey.matches('robots/' + robotId + '/captures/' + captureId + '/[A-Za-z0-9_.-]+');
+        }
+        function validCapture() {
+          let data = request.resource.data;
+          return data.keys().hasOnly(['schemaVersion', 'senderId', 'captureId', 'runId', 'cameraRole',
+              'phase', 'zone', 'capturedAt', 'analyzedAt', 'updatedAt', 'status', 'rawObjectKey', 'processedObjectKeys'])
+            && data.schemaVersion == 1 && data.senderId == request.auth.uid
+            && data.captureId == captureId && captureId.matches('cap_[a-f0-9]{32}')
+            && data.runId.matches('run_[a-f0-9]{24}')
+            && data.cameraRole in ['side', 'front']
+            && data.phase in ['initial', 'rescan', 'manual']
+            && data.zone is int && data.zone >= 0
+            && data.capturedAt is string && data.capturedAt.size() <= 40
+            && (data.analyzedAt == null || (data.analyzedAt is string && data.analyzedAt.size() <= 40))
+            && data.updatedAt == request.time
+            && data.status in ['captured', 'processed']
+            && data.rawObjectKey is string
+            && data.rawObjectKey.matches('robots/' + robotId + '/captures/' + captureId + '/[A-Za-z0-9_.-]+')
+            && data.processedObjectKeys is list && data.processedObjectKeys.size() <= 4
+            && (data.processedObjectKeys.size() < 1 || validProcessed(data.processedObjectKeys[0]))
+            && (data.processedObjectKeys.size() < 2 || validProcessed(data.processedObjectKeys[1]))
+            && (data.processedObjectKeys.size() < 3 || validProcessed(data.processedObjectKeys[2]))
+            && (data.processedObjectKeys.size() < 4 || validProcessed(data.processedObjectKeys[3]))
+            && ((data.status == 'captured' && data.analyzedAt == null && data.processedObjectKeys.size() == 0)
+              || (data.status == 'processed' && data.analyzedAt is string && data.processedObjectKeys.size() > 0));
+        }
+        allow create: if isSender(robotId) && validCapture();
+        allow update: if isSender(robotId) && validCapture()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'analyzedAt', 'updatedAt', 'processedObjectKeys'])
+          && (resource.data.status == 'captured' || request.resource.data.status == 'processed');
+      }
+
+      match /commands/{commandId} {
+        allow read: if isSender(robotId)
+          || (isOperator(robotId) && resource.data.ownerUid == request.auth.uid);
+        allow create: if isOperator(robotId)
+          && commandId.matches('[A-Za-z0-9_-]{1,128}')
+          && request.resource.data.keys().hasOnly(['schemaVersion', 'robotId', 'ownerUid', 'action',
+            'state', 'createdAt', 'acceptedAt', 'finishedAt', 'resultCode'])
+          && request.resource.data.keys().hasAll(['schemaVersion', 'robotId', 'ownerUid', 'action',
+            'state', 'createdAt', 'acceptedAt', 'finishedAt', 'resultCode'])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.robotId == robotId
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.action in ['START', 'E_STOP']
+          && request.resource.data.state == 'requested'
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.acceptedAt == null
+          && request.resource.data.finishedAt == null
+          && request.resource.data.resultCode == null;
+        allow update: if isSender(robotId)
+          && ((resource.data.state == 'requested'
+            && requestAlive(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'acceptedAt'])
+            && request.resource.data.state == 'accepted'
+            && request.resource.data.acceptedAt == request.time)
+          || (resource.data.state in ['requested', 'accepted']
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'finishedAt', 'resultCode'])
+            && (request.resource.data.state == 'failed'
+              || (resource.data.state == 'accepted' && request.resource.data.state == 'succeeded'))
+            && request.resource.data.finishedAt == request.time
+            && request.resource.data.resultCode is string
+            && request.resource.data.resultCode.matches('[a-z_]{1,64}')));
+      }
+
+      match /webrtcLocks/active {
+        allow read: if isViewer(robotId) || isSender(robotId);
+        function validLease() {
+          let next = request.resource.data;
+          let session = getAfter(/databases/$(database)/documents/robots/$(robotId)/webrtcSessions/$(next.sessionId)).data;
+          return next.keys().hasOnly(['sessionId', 'ownerUid', 'leaseUntil'])
+            && next.sessionId is string && next.ownerUid == request.auth.uid
+            && next.leaseUntil is timestamp && next.leaseUntil > request.time
+            && next.leaseUntil <= request.time + duration.value(40, 's')
+            && session.ownerUid == request.auth.uid && !terminal(session)
+            && session.viewerHeartbeatAt == request.time && session.expiresAt > request.time;
+        }
+        function freshSession() {
+          let session = getAfter(/databases/$(database)/documents/robots/$(robotId)/webrtcSessions/$(request.resource.data.sessionId)).data;
+          return session.createdAt == request.time && session.state == 'requested';
+        }
+        allow create: if isViewer(robotId) && validLease() && freshSession();
+        allow update: if isViewer(robotId) && validLease()
+          && ((resource.data.leaseUntil > request.time
+              && resource.data.sessionId == request.resource.data.sessionId
+              && resource.data.ownerUid == request.auth.uid)
+            || (resource.data.leaseUntil <= request.time && freshSession()));
+        allow delete: if isViewer(robotId) && resource.data.ownerUid == request.auth.uid
+          && terminal(getAfter(/databases/$(database)/documents/robots/$(robotId)/webrtcSessions/$(resource.data.sessionId)).data);
+      }
+
+      match /webrtcSessions/{sessionId} {
+        allow read: if isSender(robotId) || (isViewer(robotId) && resource.data.ownerUid == request.auth.uid);
+        allow create: if isViewer(robotId)
+          && request.resource.data.keys().hasOnly(['schemaVersion', 'robotId', 'ownerUid', 'senderId',
+            'offer', 'answer', 'state', 'createdAt', 'viewerHeartbeatAt', 'expiresAt', 'endedAt', 'errorCode'])
+          && request.resource.data.schemaVersion == 1
+          && request.resource.data.robotId == robotId
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.senderId == robotConfig(robotId).senderId
+          && validSdp(request.resource.data.offer, 'offer')
+          && request.resource.data.answer == null && request.resource.data.state == 'requested'
+          && request.resource.data.createdAt == request.time && request.resource.data.viewerHeartbeatAt == request.time
+          && request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt <= request.time + duration.value(3660, 's')
+          && request.resource.data.endedAt == null && request.resource.data.errorCode == null
+          && nextLease(robotId, sessionId, request.auth.uid);
+
+        allow update: if isViewer(robotId) && resource.data.ownerUid == request.auth.uid
+          && !terminal(resource.data)
+          && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewerHeartbeatAt'])
+              && alive(robotId, sessionId, resource.data)
+              && request.resource.data.viewerHeartbeatAt == request.time
+              && nextLease(robotId, sessionId, request.auth.uid))
+            || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'endedAt'])
+              && request.resource.data.state == 'closed' && request.resource.data.endedAt == request.time));
+
+        allow update: if isSender(robotId) && resource.data.senderId == request.auth.uid
+          && !terminal(resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'state', 'endedAt', 'errorCode'])
+          && (request.resource.data.answer == resource.data.answer
+            || (resource.data.answer == null && validSdp(request.resource.data.answer, 'answer')))
+          && (request.resource.data.errorCode == null || (request.resource.data.errorCode is string
+            && request.resource.data.errorCode.size() <= 128))
+          && ((terminal(request.resource.data) && request.resource.data.endedAt == request.time)
+            || (alive(robotId, sessionId, resource.data) && request.resource.data.endedAt == null
+              && request.resource.data.errorCode == null
+              && ((resource.data.state == 'requested' && request.resource.data.state == 'negotiating')
+                || (resource.data.state == 'negotiating' && request.resource.data.state in ['negotiating', 'connected']))
+              && (request.resource.data.state != 'connected' || validSdp(request.resource.data.answer, 'answer'))));
+
+        match /{candidateCollection}/{candidateId} {
+          function validCandidate() {
+            let value = request.resource.data;
+            return value.createdAt == request.time
+              && ((value.keys().hasOnly(['endOfCandidates', 'createdAt']) && value.endOfCandidates == true)
+                || (value.keys().hasOnly(['candidate', 'sdpMid', 'sdpMLineIndex', 'usernameFragment', 'createdAt'])
+                  && value.candidate is string && value.candidate.size() <= 8192
+                  && (value.sdpMid == null || (value.sdpMid is string && value.sdpMid.size() <= 256))
+                  && (value.sdpMLineIndex == null || (value.sdpMLineIndex is int && value.sdpMLineIndex >= 0 && value.sdpMLineIndex < 256))
+                  && (value.usernameFragment == null || (value.usernameFragment is string && value.usernameFragment.size() <= 256))));
+          }
+          allow read: if candidateCollection in ['viewerCandidates', 'senderCandidates']
+            && (isSender(robotId) || (isViewer(robotId) && sessionData(robotId, sessionId).ownerUid == request.auth.uid));
+          allow create: if validCandidate()
+            && alive(robotId, sessionId, sessionData(robotId, sessionId))
+            && ((candidateCollection == 'viewerCandidates' && isViewer(robotId)
+                && sessionData(robotId, sessionId).ownerUid == request.auth.uid)
+              || (candidateCollection == 'senderCandidates' && isSender(robotId)
+                && sessionData(robotId, sessionId).senderId == request.auth.uid));
+        }
+      }
+    }
+
+    // The legacy administrator grant must not bypass WebRTC ownership rules.
+    match /{topCollection}/{document=**} {
+      allow read, write: if topCollection != 'robots' && isAdmin();
+    }
+  }
+}

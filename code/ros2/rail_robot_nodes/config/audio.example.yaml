@@ -1,0 +1,15 @@
+# robot.launch.py params_file:=... 로 읽는다. 경로는 사용자가 WAV를 저장한 위치로 변경한다.
+rail_audio_alert:
+  ros__parameters:
+    audio_directory: /home/bitdol/.local/share/rail_robot/audio
+    audio_device: default
+    playback_timeout_sec: 30.0
+    repeat_gap_sec: 0.5
+rail_mission:
+  ros__parameters:
+    # 재생 제한 30초보다 여유 있게 두어 토픽 발견·완료 응답 시간을 포함한다.
+    audio_start_timeout_sec: 40.0
+    # 정상 완료 뒤 스택 자동 종료(기본 켬, 완료 상태 20초 표시). 업로드가 켜져 있으면 결과를 최대 180초 기다린다.
+    exit_after_complete: true
+    exit_hold_seconds: 20.0
+    upload_wait_seconds: 180.0

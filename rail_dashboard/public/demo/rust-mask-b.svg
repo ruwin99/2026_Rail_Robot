@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-label="청소 후 녹 마스크 예시">
+  <defs><linearGradient id="rail" x1="0" x2="1"><stop stop-color="#35403e"/><stop offset=".22" stop-color="#7d8783"/><stop offset=".52" stop-color="#4b5653"/><stop offset=".8" stop-color="#929a97"/><stop offset="1" stop-color="#303936"/></linearGradient><pattern id="grain" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 1h6" stroke="#fff" stroke-opacity=".08"/></pattern></defs>
+  <rect width="640" height="360" fill="url(#rail)"/><rect width="640" height="360" fill="url(#grain)"/>
+  <path d="M213 191c22-23 66-24 87-5 19 17 1 45-29 45-35 0-78-19-58-40Z" fill="#df712c" fill-opacity=".82"/>
+</svg>
